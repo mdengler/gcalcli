@@ -2376,7 +2376,7 @@ def BowChickaWowWow():
             tmpArgv = [argv[0], "--flagfile=~/.gcalclirc"] + argv[1:]
         else:
             tmpArgv = argv
-        args = FLAGS(tmpArgv[1:])
+        args = FLAGS(tmpArgv)
     except gflags.FlagsError, e:
         PrintErrMsg(str(e))
         Usage(True)
