@@ -190,6 +190,7 @@ class GoogleCalendarInterface:
 
         self.cache = {}
         self.all_cals = []
+        self.all_colors = {}
 
         if self.options['use_cache']:
             # note that we need to use pickle for cache data since we stuff
@@ -198,6 +199,7 @@ class GoogleCalendarInterface:
                 with open(cache_file, 'rb') as _cache_:
                     self.cache = pickle.load(_cache_)
                     self.all_cals = self.cache['all_cals']
+                    self.all_colors = self.cache['all_colors']
                 # XXX assuming data is valid, need some verification check here
                 return
             except IOError:
@@ -223,8 +225,14 @@ class GoogleCalendarInterface:
 
         self.all_cals.sort(key=lambda x: x['accessRole'])
 
+        color_dict = self._retry_with_backoff(
+            self.get_cal_service().colors().get()
+        )
+        self.all_colors = color_dict
+
         if self.options['use_cache']:
             self.cache['all_cals'] = self.all_cals
+            self.cache['all_colors'] = self.all_colors
             with open(cache_file, 'wb') as _cache_:
                 pickle.dump(self.cache, _cache_)
 
