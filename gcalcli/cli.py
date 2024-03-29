@@ -156,13 +156,16 @@ def main():
     parser = get_argument_parser()
     argv = sys.argv[1:]
 
-    rc_paths = [
-        pathlib.Path('~/.gcalclirc').expanduser(),
-        env.config_dir().joinpath('gcalclirc'),
-    ]
-    # Note: Order is significant here, so precedence is
-    # ~/.gcalclirc < CONFIGDIR/gcalclirc < explicit args
-    fromfile_args = [f'@{rc}' for rc in rc_paths if rc.exists()]
+    if "--noincluderc" in argv:
+        fromfile_args = []
+    else:
+        rc_paths = [
+            pathlib.Path('~/.gcalclirc').expanduser(),
+            env.config_dir().joinpath('gcalclirc'),
+        ]
+        # Note: Order is significant here, so precedence is
+        # ~/.gcalclirc < CONFIGDIR/gcalclirc < explicit args
+        fromfile_args = [f'@{rc}' for rc in rc_paths if rc.exists()]
 
     try:
         (parsed_args, unparsed) = parser.parse_known_args(fromfile_args + argv)
