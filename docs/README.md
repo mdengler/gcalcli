@@ -193,10 +193,7 @@ gcalcli caches your calendar list in a `cache` file. It uses the first match:
 3. `cache` in your platform's data directory (for example
    ~/.local/share/gcalcli/cache on Linux)
 
-`$XDG_CACHE_HOME` wins even over a cache file in your config directory. That
-choice is arguable: an explicit config directory could also be read as the
-stronger signal. Unset `$XDG_CACHE_HOME` for gcalcli if you want the cache to
-stay in your config directory.
+`$XDG_CACHE_HOME` always wins, following the XDG Base Directory spec.
 
 Old cache files left in other locations are ignored, and
 `gcalcli util reset-cache` deletes all of them.
