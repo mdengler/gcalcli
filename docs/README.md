@@ -183,6 +183,24 @@ between different sets of configuration. For example:
 GCALCLI_CONFIG=~/.config/gcalcli/config.tuesdays.toml gcalcli add
 ```
 
+#### Cache file location
+
+gcalcli caches your calendar list in a `cache` file. It uses the first match:
+
+1. `$XDG_CACHE_HOME/gcalcli/cache`, if `$XDG_CACHE_HOME` is set to an absolute
+   path (whether or not the file exists yet)
+2. `cache` in your config directory (`$GCALCLI_CONFIG`), if that file exists
+3. `cache` in your platform's data directory (for example
+   ~/.local/share/gcalcli/cache on Linux)
+
+`$XDG_CACHE_HOME` wins even over a cache file in your config directory. That
+choice is arguable: an explicit config directory could also be read as the
+stronger signal. Unset `$XDG_CACHE_HOME` for gcalcli if you want the cache to
+stay in your config directory.
+
+Old cache files left in other locations are ignored, and
+`gcalcli util reset-cache` deletes all of them.
+
 #### Using cli args from a file (and gcalclirc flag file)
 
 You can save commonly-used options in a file and load them into cli options

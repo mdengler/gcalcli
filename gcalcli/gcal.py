@@ -156,6 +156,8 @@ class GoogleCalendarInterface:
         primary_path = None
         legacy_path = None
         for (path, category) in paths:
+            if category >= 2:
+                return path
             if path.exists():
                 if category >= 0:
                     return path

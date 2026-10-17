@@ -15,14 +15,29 @@ def data_file_paths(
         name: str,
         config_dir: Optional[pathlib.Path] = None,
     ) -> list[Tuple[pathlib.Path, int]]:
-    """Return all paths actively used for the given data file name.
+    """Return all paths actively used for the given data file name, highest priority first
+
+    Priority:
+    - environment variable setting (from the XDG Base Directory spec https://specifications.freedesktop.org/basedir/latest/)
+    - legacy-a: config file setting, iff `name` already exists (for legacy reasons)
+    - usual `platformdirs.user_data_path`
+    - legacy-b: `~/.gcalcli_<username>` path if that path exists
 
     The paths are returned as tuples in order of decreasing precedence like:
-    [(CONFIG/name, 1), (DATA_DIR/name, 0), (~/.gcalcli_{name}, -1)]
-    with the DATA_DIR path always present and others only present if the file
-    exists.
+    [($XDG_CACHE_HOME/gcalcli/cache, 2), (CONFIG/name, 1), (DATA_DIR/name, 0),
+     (~/.gcalcli_{name}, -1)]
+    with the DATA_DIR path always present, an `XDG_CACHE_HOME` path present if
+    `XDG_CACHE_HOME` is non-empty and `name="cache"`, and others only present if
+    the file exists.
+
     """
     paths = []
+    # Explicit $XDG_CACHE_HOME takes precedence for name='cache', even over the
+    # config dir, and is used whether or not the file exists yet.
+    if name == 'cache':
+        cache_home = xdg_cache_home()
+        if cache_home:
+            paths.append((cache_home.joinpath(__program__, name), 2))
     # Path in config dir takes precedence, if any.
     if config_dir:
         path_in_config = config_dir.joinpath(name)
@@ -35,6 +50,12 @@ def data_file_paths(
     if legacy_path.exists():
         paths.append((legacy_path, -1))
     return paths
+
+
+def xdg_cache_home() -> Optional[pathlib.Path]:
+    # Per the XDG spec, relative paths are invalid and should be ignored.
+    cache_home = pathlib.Path(os.environ.get('XDG_CACHE_HOME', ''))
+    return cache_home if cache_home.is_absolute() else None
 
 
 def explicit_config_path() -> Optional[pathlib.Path]:
