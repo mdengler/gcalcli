@@ -1,5 +1,6 @@
 v4.5.2
   * Support oauth (and cache) files in $GCALCLI_CONFIG dir
+  * Store cache under $XDG_CACHE_HOME/gcalcli when that is set (#874)
 
 v4.5.1
   * Fix gcalcli failing to run on python 3.10 if config file is present

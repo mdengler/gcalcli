@@ -363,8 +363,8 @@ def main():
                 print(json.dumps(schema, indent=2))
             elif parsed_args.subcommand == 'reset-cache':
                 deleted_something = False
-                for (cache_filepath, _) in env.data_file_paths(
-                    'cache', parsed_args.config_folder
+                for cache_filepath in env.cache_file_paths(
+                    parsed_args.config_folder
                 ):
                     if cache_filepath.exists():
                         printer.msg(

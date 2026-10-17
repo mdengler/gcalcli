@@ -246,7 +246,8 @@ class GoogleCalendarInterface:
                             bak=utils.shorten_path(backup_filepath),
                         ))
                     oauth_filepath.rename(backup_filepath)
-                cache_filepath = self.data_file_path('cache')
+                cache_filepath = env.cache_file_paths(
+                    self.options.get('config_folder'))[0]
                 cache_filepath.unlink(missing_ok=True)
                 self.credentials = None
             else:  # n, abort without refreshing
@@ -322,7 +323,8 @@ class GoogleCalendarInterface:
         return self.get_cal_service().events()
 
     def _get_cached(self):
-        cache_path = self.data_file_path('cache')
+        cache_path = env.cache_file_paths(
+            self.options.get('config_folder'))[0]
 
         if self.options['refresh_cache']:
             cache_path.unlink(missing_ok=True)

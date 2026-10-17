@@ -183,6 +183,26 @@ between different sets of configuration. For example:
 GCALCLI_CONFIG=~/.config/gcalcli/config.tuesdays.toml gcalcli add
 ```
 
+#### Cache file location
+
+gcalcli caches your calendar list in a `cache` file. It uses the first match:
+
+1. `$XDG_CACHE_HOME/gcalcli/cache`, if `$XDG_CACHE_HOME` is set to an absolute
+   path (whether or not the file exists yet)
+2. `cache` in your config directory (`$GCALCLI_CONFIG`), if that file exists
+3. `cache` in your platform's data directory (for example
+   ~/.local/share/gcalcli/cache on Linux)
+
+`$XDG_CACHE_HOME` always wins, following the XDG Base Directory spec.
+
+Old cache files left in other locations are ignored, and
+`gcalcli util reset-cache` deletes all of them.
+
+If you switch Google accounts by changing `$XDG_DATA_HOME` or
+`$GCALCLI_CONFIG` and you also set `$XDG_CACHE_HOME`, give each account its
+own `$XDG_CACHE_HOME` too. Otherwise the accounts share one cache, and
+gcalcli may show the wrong calendar list until you run with `--refresh`.
+
 #### Using cli args from a file (and gcalclirc flag file)
 
 You can save commonly-used options in a file and load them into cli options
