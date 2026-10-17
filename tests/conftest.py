@@ -8,6 +8,7 @@ import pytest
 from dateutil.tz import tzlocal
 from googleapiclient.discovery import HttpMock, build
 
+from gcalcli import env
 from gcalcli.argparsers import (get_cal_query_parser, get_color_parser,
                                 get_output_parser)
 from gcalcli.gcal import GoogleCalendarInterface
@@ -121,7 +122,7 @@ def PatchedGCalI(gcali_patches, monkeypatch):
 
 
 @pytest.fixture
-def gcali_patches(monkeypatch):
+def gcali_patches(monkeypatch, tmp_path):
     def mocked_cal_service(self):
         http = HttpMock(
             TEST_DATA_DIR + '/cal_service_discovery.json', {'status': '200'}
@@ -161,6 +162,8 @@ def gcali_patches(monkeypatch):
         return stubbed_path.joinpath(name)
     monkeypatch.setattr(
         GoogleCalendarInterface, 'data_file_path', data_file_path_stub)
+    monkeypatch.setattr(
+        env, 'cache_file_paths', lambda config_dir=None: [tmp_path / 'cache'])
 
     orig_init = GoogleCalendarInterface.__init__
     def modified_init(self, *args, data_path=None, **kwargs):

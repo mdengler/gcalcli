@@ -15,7 +15,12 @@ def data_file_paths(
         name: str,
         config_dir: Optional[pathlib.Path] = None,
     ) -> list[Tuple[pathlib.Path, int]]:
-    """Return all paths actively used for the given data file name.
+    """Return all paths actively used for the given data file name, highest priority first
+
+    Priority:
+    - legacy-a: config file setting, iff `name` already exists (for legacy reasons)
+    - usual `platformdirs.user_data_path`
+    - legacy-b: `~/.gcalcli_<name>` path if that path exists
 
     The paths are returned as tuples in order of decreasing precedence like:
     [(CONFIG/name, 1), (DATA_DIR/name, 0), (~/.gcalcli_{name}, -1)]
@@ -35,6 +40,31 @@ def data_file_paths(
     if legacy_path.exists():
         paths.append((legacy_path, -1))
     return paths
+
+
+def default_cache_dir() -> pathlib.Path:
+    cache_home = xdg_cache_home()
+    if cache_home:
+        return cache_home.joinpath(__program__)
+    return platformdirs.user_cache_path(__program__)
+
+
+def cache_file_paths(
+        config_dir: Optional[pathlib.Path] = None,
+    ) -> list[pathlib.Path]:
+    """Return the cache file path in use first, then any old cache files."""
+    old_paths = [path for (path, _) in data_file_paths('cache', config_dir)]
+    # Keeps the pre-#874 location until a release can absorb a cache move.
+    # Delete this case and the cache moves to default_cache_dir() for everyone.
+    if not xdg_cache_home():
+        return old_paths
+    return [default_cache_dir().joinpath('cache')] + old_paths
+
+
+def xdg_cache_home() -> Optional[pathlib.Path]:
+    # Per the XDG spec, relative paths are invalid and should be ignored.
+    cache_home = pathlib.Path(os.environ.get('XDG_CACHE_HOME', ''))
+    return cache_home if cache_home.is_absolute() else None
 
 
 def explicit_config_path() -> Optional[pathlib.Path]:
