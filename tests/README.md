@@ -8,10 +8,14 @@ git submodule update --init
 tox
 ```
 
+tox uses the [tox-uv](https://github.com/tox-dev/tox-uv) plugin (installed automatically) to build
+test envs with uv. If you have [uv](https://docs.astral.sh/uv/) installed, `uvx --with tox-uv tox`
+works without installing tox.
+
 Or run individual configurations like
 
 ```shell
-tox -e py38,cli
+tox -e py312,cli
 ```
 
 The supported tox testing envs are listed and configured in ../tox.ini.
