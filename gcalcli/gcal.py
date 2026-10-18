@@ -16,6 +16,8 @@ import time
 from typing import Any, Iterable
 from unicodedata import east_asian_width
 
+import google.auth.exceptions
+import google_auth_httplib2  # type: ignore[import-untyped]
 import googleapiclient.http
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
@@ -138,6 +140,11 @@ class GoogleCalendarInterface:
         for n in range(self.max_retries):
             try:
                 return method.execute()
+            except google.auth.exceptions.RefreshError as exc:
+                if not auth.is_invalid_grant(exc):
+                    raise
+                self._sign_in_again_or_raise(exc)
+                return method.execute(http=self._authorized_http())
             except HttpError as e:
                 error = json.loads(e.content)
                 error = error.get('error')
@@ -149,6 +156,41 @@ class GoogleCalendarInterface:
                     raise
 
         return None
+
+    def _sign_in_again_or_raise(self, exc):
+        """Recover from Google rejecting the saved login (invalid_grant).
+
+        Offers to sign in again when someone can answer at a terminal;
+        otherwise raises GcalcliError so headless runs fail instead of waiting
+        for input.
+        """
+        oauth_filepath = self.data_file_path('oauth')
+        signed_in = datetime.fromtimestamp(oauth_filepath.stat().st_mtime)
+        message = auth.invalid_grant_message(signed_in, datetime.now())
+        if not (sys.stdin.isatty() and sys.stderr.isatty()):
+            raise GcalcliError(message) from exc
+        self.printer.err_msg(message)
+        self.printer.msg(
+            'Sign in again now? [Y]es [n]o: ', 'magenta', file=sys.stderr
+        )
+        try:
+            answer = input()
+        except EOFError:
+            answer = 'n'
+        if answer.strip().lower() not in ('', 'y', 'yes'):
+            raise GcalcliError(
+                'Keeping the saved login. Run `gcalcli init` to sign in '
+                'again.\n'
+            ) from exc
+        previous = self.credentials
+        self._discard_credentials()
+        self._sign_in(previous)
+        self.cal_service = None
+
+    def _authorized_http(self):
+        return google_auth_httplib2.AuthorizedHttp(
+            self.credentials, http=googleapiclient.http.build_http()
+        )
 
     @functools.cache
     def data_file_path(self, name: str) -> pathlib.Path:
@@ -228,7 +270,7 @@ class GoogleCalendarInterface:
                 pickle.dump(self.credentials, gcalcli_oauth)
 
     def SetupAuth(self):
-        oauth_filepath = self.data_file_path('oauth')
+        previous = None
 
         # Try loading cached credentials
         self._load_credentials()
@@ -237,76 +279,97 @@ class GoogleCalendarInterface:
             self.printer.msg('Ignore and refresh? [N]o [y]es: ', 'magenta')
             val = input()
             if val and val.lower() == 'y' and not self.userless_mode:
-                if oauth_filepath.exists():
-                    backup_filepath = oauth_filepath.with_suffix('.bak')
-                    self.printer.debug_msg(
-                        'Moving existing oauth creds aside from '
-                        '{oauth} to {bak}\n'.format(
-                            oauth=utils.shorten_path(oauth_filepath),
-                            bak=utils.shorten_path(backup_filepath),
-                        ))
-                    oauth_filepath.rename(backup_filepath)
-                cache_filepath = self.data_file_path('cache')
-                cache_filepath.unlink(missing_ok=True)
-                self.credentials = None
+                previous = self.credentials
+                self._discard_credentials()
             else:  # n, abort without refreshing
                 self.printer.msg('Aborting, keeping existing credentials...')
                 return
 
         if not self.credentials:
-            # No cached credentials, start auth flow
-            self.printer.msg('Starting auth flow...\n', 'yellow')
-            self.printer.msg(
-                'NOTE: See '
-                'https://github.com/insanum/gcalcli/blob/HEAD/docs/api-auth.md '
-                'for help/troubleshooting.\n'
-            )
-            missing_info = [
-                opt
-                for opt in ['client_id', 'client_secret']
-                if self.options.get(opt) is None
-            ]
-            if missing_info:
-                self.printer.msg(
-                    f"You'll be asked for a {' and '.join(missing_info)} "
-                    'that you should have set up for yourself in Google '
-                    'dev console.\n'
-                )
-            client_id = self.options.get('client_id')
-            if client_id is None:
-                self.printer.msg('Client ID: ', 'magenta')
-                client_id = input()
-            client_secret = self.options.get('client_secret')
-            if client_secret is None:
-                self.printer.msg('Client Secret: ', 'magenta')
-                client_secret = input()
-            self.printer.msg(
-                'Now click the link below and follow directions to '
-                'authenticate.\n',
-                'yellow',
-            )
-            self.printer.msg(
-                'You will likely see a security warning page and need to '
-                'click "Advanced" and "Go to gcalcli (unsafe)" to proceed.\n'
-            )
-            if self.userless_mode:
-                self.printer.msg(
-                    'Skipping actual authentication (running in userless '
-                    'mode)\n'
-                )
+            self._sign_in(previous)
+            if not self.credentials:  # userless mode
                 return
-            self.credentials = auth.authenticate(
-                client_id,
-                client_secret,
-                printer=self.printer,
-                local=self.options['auth_local_server'],
-            )
-            oauth_filepath.parent.mkdir(parents=True, exist_ok=True)
-            with open(oauth_filepath, 'wb') as gcalcli_oauth:
-                pickle.dump(self.credentials, gcalcli_oauth)
 
         auth.refresh_if_expired(self.credentials)
         self.printer.debug_msg('Successfully loaded credentials\n')
+
+    def _discard_credentials(self):
+        """Move the saved login aside and drop the cache that came with it."""
+        oauth_filepath = self.data_file_path('oauth')
+        if oauth_filepath.exists():
+            backup_filepath = oauth_filepath.with_suffix('.bak')
+            self.printer.debug_msg(
+                'Moving existing oauth creds aside from '
+                '{oauth} to {bak}\n'.format(
+                    oauth=utils.shorten_path(oauth_filepath),
+                    bak=utils.shorten_path(backup_filepath),
+                ))
+            oauth_filepath.rename(backup_filepath)
+        cache_filepath = self.data_file_path('cache')
+        cache_filepath.unlink(missing_ok=True)
+        self.credentials = None
+
+    def _sign_in(self, previous=None):
+        """Run the browser sign-in flow and save the new login.
+
+        Reuses the client ID and secret from `previous` credentials unless
+        either was given as an option.
+        """
+        self.printer.msg('Starting auth flow...\n', 'yellow')
+        self.printer.msg(
+            'NOTE: See '
+            'https://github.com/insanum/gcalcli/blob/HEAD/docs/api-auth.md '
+            'for help/troubleshooting.\n'
+        )
+        client_id = self.options.get('client_id')
+        client_secret = self.options.get('client_secret')
+        if previous and client_id is None and client_secret is None:
+            client_id = previous.client_id
+            client_secret = previous.client_secret
+        missing_info = [
+            name
+            for (name, value) in [
+                ('client_id', client_id), ('client_secret', client_secret)
+            ]
+            if value is None
+        ]
+        if missing_info:
+            self.printer.msg(
+                f"You'll be asked for a {' and '.join(missing_info)} "
+                'that you should have set up for yourself in Google '
+                'dev console.\n'
+            )
+        if client_id is None:
+            self.printer.msg('Client ID: ', 'magenta')
+            client_id = input()
+        if client_secret is None:
+            self.printer.msg('Client Secret: ', 'magenta')
+            client_secret = input()
+        self.printer.msg(
+            'Now click the link below and follow directions to '
+            'authenticate.\n',
+            'yellow',
+        )
+        self.printer.msg(
+            'You will likely see a security warning page and need to '
+            'click "Advanced" and "Go to gcalcli (unsafe)" to proceed.\n'
+        )
+        if self.userless_mode:
+            self.printer.msg(
+                'Skipping actual authentication (running in userless '
+                'mode)\n'
+            )
+            return
+        self.credentials = auth.authenticate(
+            client_id,
+            client_secret,
+            printer=self.printer,
+            local=self.options['auth_local_server'],
+        )
+        oauth_filepath = self.data_file_path('oauth')
+        oauth_filepath.parent.mkdir(parents=True, exist_ok=True)
+        with open(oauth_filepath, 'wb') as gcalcli_oauth:
+            pickle.dump(self.credentials, gcalcli_oauth)
 
     def get_cal_service(self):
         if not self.cal_service and not self.userless_mode:

@@ -232,19 +232,21 @@ def main():
     cal_names = set_resolved_calendars(parsed_args, printer=printer)
 
     userless_mode = bool(os.environ.get('GCALCLI_USERLESS_MODE'))
-    if parsed_args.command in ('config', 'util'):
-        gcal = None
-    else:
-        gcal = GoogleCalendarInterface(
-            cal_names=cal_names,
-            printer=printer,
-            userless_mode=userless_mode,
-            # TODO: Avoid heavy unnecessary setup in general, remove override.
-            do_eager_init=parsed_args.command != 'init',
-            **vars(parsed_args),
-        )
-
     try:
+        if parsed_args.command in ('config', 'util'):
+            gcal = None
+        else:
+            # Inside the try: setup can call Google, e.g. on a cache miss.
+            gcal = GoogleCalendarInterface(
+                cal_names=cal_names,
+                printer=printer,
+                userless_mode=userless_mode,
+                # TODO: Avoid heavy unnecessary setup in general, remove
+                # override.
+                do_eager_init=parsed_args.command != 'init',
+                **vars(parsed_args),
+            )
+
         if parsed_args.command == 'init':
             gcal.SetupAuth()
 

@@ -1,5 +1,8 @@
 from contextlib import closing
+import datetime
 import socket
+
+import google.auth.exceptions
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.oauth2.credentials import Credentials
@@ -78,6 +81,41 @@ def _free_local_port():
 def refresh_if_expired(credentials) -> None:
     if credentials.expired:
         credentials.refresh(Request())
+
+
+# Google expires refresh tokens after 7 days for apps in "Testing" status.
+TESTING_LOGIN_DAYS = 7
+
+
+def is_invalid_grant(exc: google.auth.exceptions.RefreshError) -> bool:
+    """Whether Google rejected the saved refresh token itself."""
+    details = exc.args[1] if len(exc.args) > 1 else None
+    return isinstance(details, dict) and details.get('error') == 'invalid_grant'
+
+
+def invalid_grant_message(
+    signed_in: datetime.datetime, now: datetime.datetime
+) -> str:
+    """Explain why Google rejected a login saved at `signed_in`, with fixes."""
+    days = (now - signed_in).days
+    message = (
+        "Error: Google rejected gcalcli's saved login from "
+        f"{signed_in:%Y-%m-%d}, {days} day{'' if days == 1 else 's'} ago "
+        '(invalid_grant).\n'
+    )
+    if days < TESTING_LOGIN_DAYS:
+        return message + (
+            'Access may have been revoked: '
+            'https://myaccount.google.com/connections\n'
+            '  Fix:  gcalcli init\n'
+        )
+    return message + (
+        f'Google ends logins after {TESTING_LOGIN_DAYS} days while your Cloud '
+        'app is in "Testing" mode.\n'
+        '  Short-term fix:  gcalcli init\n'
+        '  Long-term fix:   click "Publish app" at '
+        'https://console.developers.google.com/auth/audience\n'
+    )
 
 
 def creds_from_legacy_json(data):
