@@ -17,7 +17,6 @@ from typing import Any, Iterable
 from unicodedata import east_asian_width
 
 import google.auth.exceptions
-import google_auth_httplib2  # type: ignore[import-untyped]
 import googleapiclient.http
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
@@ -75,6 +74,7 @@ class GoogleCalendarInterface:
         printer=PRINTER,
         userless_mode=False,
         do_eager_init=True,
+        sign_in_first=False,
         **options,
     ):
         self.cals = []
@@ -99,6 +99,10 @@ class GoogleCalendarInterface:
                 file=sys.stderr,
             )
         elif do_eager_init:
+            if sign_in_first:
+                # The command will call Google whatever the cache holds, so
+                # check the login before reading the cache or asking questions.
+                self.get_cal_service()
             self._get_cached()
 
         self._select_cals(cal_names)
@@ -143,8 +147,9 @@ class GoogleCalendarInterface:
             except google.auth.exceptions.RefreshError as exc:
                 if not auth.is_invalid_grant(exc):
                     raise
-                self._sign_in_again_or_raise(exc)
-                return method.execute(http=self._authorized_http())
+                # The login died partway through the run.  Signing in again
+                # here could mix data from two logins, so stop.
+                raise GcalcliError(self._invalid_grant_message()) from exc
             except HttpError as e:
                 error = json.loads(e.content)
                 error = error.get('error')
@@ -157,6 +162,12 @@ class GoogleCalendarInterface:
 
         return None
 
+    def _invalid_grant_message(self):
+        # The oauth file is written when the user signs in, never on refresh.
+        oauth_filepath = self.data_file_path('oauth')
+        signed_in = datetime.fromtimestamp(oauth_filepath.stat().st_mtime)
+        return auth.invalid_grant_message(signed_in, datetime.now())
+
     def _sign_in_again_or_raise(self, exc):
         """Recover from Google rejecting the saved login (invalid_grant).
 
@@ -164,9 +175,7 @@ class GoogleCalendarInterface:
         otherwise raises GcalcliError so headless runs fail instead of waiting
         for input.
         """
-        oauth_filepath = self.data_file_path('oauth')
-        signed_in = datetime.fromtimestamp(oauth_filepath.stat().st_mtime)
-        message = auth.invalid_grant_message(signed_in, datetime.now())
+        message = self._invalid_grant_message()
         if not (sys.stdin.isatty() and sys.stderr.isatty()):
             raise GcalcliError(message) from exc
         self.printer.err_msg(message)
@@ -185,12 +194,23 @@ class GoogleCalendarInterface:
         previous = self.credentials
         self._discard_credentials()
         self._sign_in(previous)
-        self.cal_service = None
 
-    def _authorized_http(self):
-        return google_auth_httplib2.AuthorizedHttp(
-            self.credentials, http=googleapiclient.http.build_http()
-        )
+    def _check_cached_calendars(self):
+        """After signing in again, refresh the calendar list and make sure
+        the calendars this run took from the old cache are still visible."""
+        if not self.all_cals:
+            return  # nothing was read from the cache yet
+        self.all_cals = self._fetch_calendar_list()
+        if self.options['use_cache']:
+            self._save_cache()
+        visible = {cal['id'] for cal in self.all_cals}
+        missing = [cal['summary'] for cal in self.cals
+                   if cal['id'] not in visible]
+        if missing:
+            raise GcalcliError(
+                "Signed in again, but the new login can't see: "
+                f"{', '.join(missing)}.\nRun the command again.\n"
+            )
 
     @functools.cache
     def data_file_path(self, name: str) -> pathlib.Path:
@@ -219,9 +239,17 @@ class GoogleCalendarInterface:
 
         return primary_path
 
-    def _google_auth(self):
+    def _google_auth(self) -> bool:
+        """Make sure there's a working login.
+
+        Returns True if the user signed in again because Google rejected the
+        saved login.
+        """
+        signed_in_again = False
         if not self.credentials:
             self._load_credentials()
+            if self.credentials:
+                signed_in_again = self._verify_sign_in()
 
         if not self.credentials:
             # Automatically trigger auth flow.
@@ -230,7 +258,19 @@ class GoogleCalendarInterface:
             self.printer.msg('Not yet authenticated.\n')
             self.SetupAuth()
 
-        return self.credentials
+        return signed_in_again
+
+    def _verify_sign_in(self) -> bool:
+        """Refresh the saved login if needed; return True if Google rejected
+        it and the user signed in again."""
+        try:
+            auth.refresh_if_expired(self.credentials)
+        except google.auth.exceptions.RefreshError as exc:
+            if not auth.is_invalid_grant(exc):
+                raise
+            self._sign_in_again_or_raise(exc)
+            return True
+        return False
 
     def _load_credentials(self):
         if self.userless_mode:
@@ -264,10 +304,13 @@ class GoogleCalendarInterface:
                     )
                     raise e
         if needs_write:
-            # Save back loaded creds to file (for legacy conversion case).
+            # Save back loaded creds to file (for legacy conversion case),
+            # keeping the timestamp: it records when the user signed in.
+            stat = oauth_filepath.stat()
             oauth_filepath.parent.mkdir(parents=True, exist_ok=True)
             with oauth_filepath.open('wb') as gcalcli_oauth:
                 pickle.dump(self.credentials, gcalcli_oauth)
+            os.utime(oauth_filepath, (stat.st_atime, stat.st_mtime))
 
     def SetupAuth(self):
         previous = None
@@ -372,12 +415,20 @@ class GoogleCalendarInterface:
             pickle.dump(self.credentials, gcalcli_oauth)
 
     def get_cal_service(self):
+        """Return the Calendar API service, checking the login first.
+
+        Every call to Google goes through here, so runs answered from the
+        cache never touch the network, even with a dead login.
+        """
         if not self.cal_service and not self.userless_mode:
+            signed_in_again = self._google_auth()
             self.cal_service = build(
                 serviceName='calendar',
                 version='v3',
-                credentials=self._google_auth(),
+                credentials=self.credentials,
             )
+            if signed_in_again:
+                self._check_cached_calendars()
 
         return self.cal_service
 
@@ -406,6 +457,13 @@ class GoogleCalendarInterface:
                 pass
                 # fall through
 
+        self.all_cals = self._fetch_calendar_list()
+
+        if self.options['use_cache']:
+            self._save_cache()
+
+    def _fetch_calendar_list(self) -> list[CalendarListEntry]:
+        all_cals: list[CalendarListEntry] = []
         page_token = None
         while True:
             cal_list = self._retry_with_backoff(
@@ -413,18 +471,20 @@ class GoogleCalendarInterface:
                     pageToken=page_token)
             )
 
-            self.all_cals.extend(cal_list['items'])
+            all_cals.extend(cal_list['items'])
             page_token = cal_list.get('nextPageToken')
             if not page_token:
                 break
 
-        self.all_cals.sort(key=lambda x: x['accessRole'])
+        all_cals.sort(key=lambda x: x['accessRole'])
+        return all_cals
 
-        if self.options['use_cache']:
-            self.cache['all_cals'] = self.all_cals
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            with cache_path.open('wb') as _cache_:
-                pickle.dump(self.cache, _cache_)
+    def _save_cache(self):
+        cache_path = self.data_file_path('cache')
+        self.cache['all_cals'] = self.all_cals
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        with cache_path.open('wb') as _cache_:
+            pickle.dump(self.cache, _cache_)
 
     def _calendar_color(self, event, override_color=False):
         ansi_codes = {

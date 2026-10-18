@@ -152,6 +152,12 @@ def run_add_prompt(parsed_args, printer):
             parsed_args.reminders.append(str(n) + ' ' + m)
 
 
+# Commands that always call Google, whatever the cache holds.
+CALENDAR_CHANGING_COMMANDS = (
+    'add', 'quick', 'import', 'edit', 'delete', 'agendaupdate'
+)
+
+
 def main():
     parser = get_argument_parser()
     argv = sys.argv[1:]
@@ -244,6 +250,7 @@ def main():
                 # TODO: Avoid heavy unnecessary setup in general, remove
                 # override.
                 do_eager_init=parsed_args.command != 'init',
+                sign_in_first=parsed_args.command in CALENDAR_CHANGING_COMMANDS,
                 **vars(parsed_args),
             )
 

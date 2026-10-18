@@ -79,7 +79,8 @@ def _free_local_port():
 
 
 def refresh_if_expired(credentials) -> None:
-    if credentials.expired:
+    # Legacy logins have no expiry; only a refresh shows whether they work.
+    if credentials.expired or credentials.expiry is None:
         credentials.refresh(Request())
 
 
