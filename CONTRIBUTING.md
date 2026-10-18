@@ -44,8 +44,27 @@ git submodule update --init
 tox
 ```
 
+tox installs the [tox-uv](https://github.com/tox-dev/tox-uv) plugin on first run (it's listed
+under `requires` in tox.ini), so it builds test envs with [uv](https://docs.astral.sh/uv/) instead
+of pip and virtualenv. That's much faster, and you don't need to install uv yourself. If you
+already have uv, you can skip installing tox too:
+
+```shell
+uvx --with tox-uv tox
+```
+
 NOTE: You'll also want to install the "dev" extra in any development environment you're using
 that's not managed by tox (by changing install commands `gcalcli`->`gcalcli[dev]` or
 `.`->`.[dev]`).
+
+## Running gcalcli from your checkout
+
+Each tox test env has an editable install of your checkout, so after running tox you can run
+`.tox/py312/bin/gcalcli` and see your changes immediately. Or make your own env with uv:
+
+```shell
+uv venv && uv pip install -e '.[dev]'
+.venv/bin/gcalcli --help
+```
 
 See [tests/README.md](tests/README.md) for more info on the tests.
