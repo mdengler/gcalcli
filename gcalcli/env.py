@@ -15,10 +15,11 @@ def data_file_paths(
         name: str,
         config_dir: Optional[pathlib.Path] = None,
     ) -> list[Tuple[pathlib.Path, int]]:
-    """Return all paths actively used for the given data file name, highest priority first
+    """Return all paths actively used for the given data file name, highest
+    priority first
 
     Priority:
-    - legacy-a: config file setting, iff `name` already exists (for legacy reasons)
+    - legacy-a: config.toml setting, iff `name` already exists
     - usual `platformdirs.user_data_path`
     - legacy-b: `~/.gcalcli_<name>` path if that path exists
 
