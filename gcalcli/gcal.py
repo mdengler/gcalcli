@@ -252,9 +252,15 @@ class GoogleCalendarInterface:
                 signed_in_again = self._verify_sign_in()
 
         if not self.credentials:
+            if not sys.stderr.isatty():
+                # Nobody would see the sign-in link, so the flow would wait
+                # forever (e.g. under cron).
+                raise GcalcliError(
+                    'Error: gcalcli is not signed in, and nobody can see the '
+                    'sign-in link.\n'
+                    '  Fix:  gcalcli init\n'
+                )
             # Automatically trigger auth flow.
-            # Note: This might change in the future to fail with suggestion to
-            # run init command.
             self.printer.msg('Not yet authenticated.\n')
             self.SetupAuth()
 

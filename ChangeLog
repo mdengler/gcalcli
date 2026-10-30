@@ -2,6 +2,8 @@ v4.5.2
   * Support oauth (and cache) files in $GCALCLI_CONFIG dir
   * Explain a rejected Google login (invalid_grant) with short- and long-term
     fixes, and offer to sign in again when run at a terminal
+  * Fail at once, instead of waiting forever, when there is no saved login
+    and stderr is not a terminal (e.g. under cron)
 
 v4.5.1
   * Fix gcalcli failing to run on python 3.10 if config file is present
