@@ -342,6 +342,36 @@ def test_gate_no_prompt_when_stderr_redirected(
     assert sign_ins == []
 
 
+def test_missing_login_fails_when_stderr_redirected(
+    config_dir, refreshes, sign_ins, monkeypatch
+):
+    # Nobody would see the sign-in link, so the browser flow would wait
+    # forever (e.g. under cron).
+    monkeypatch.setattr(sys, 'stdin', FakeTTY())
+    monkeypatch.setattr(sys, 'stderr', io.StringIO())
+    write_cache(config_dir, [CAL_A])
+    gcal = make_gcal(config_dir, client_id='id', client_secret='secret')
+
+    with pytest.raises(GcalcliError, match='Fix:  gcalcli init'):
+        gcal.get_cal_service()
+
+    assert sign_ins == []
+
+
+def test_missing_login_signs_in_with_stdin_redirected(
+    config_dir, refreshes, sign_ins, monkeypatch
+):
+    # The link still shows, e.g. for `gcalcli calw </dev/null`.
+    monkeypatch.setattr(sys, 'stdin', io.StringIO())
+    monkeypatch.setattr(sys, 'stderr', FakeTTY())
+    write_cache(config_dir, [CAL_A])
+    gcal = make_gcal(config_dir, client_id='id', client_secret='secret')
+
+    gcal.get_cal_service()
+
+    assert sign_ins == [('id', 'secret')]
+
+
 @pytest.mark.parametrize('answer', ['n\n', ''])
 def test_gate_declined(dead_login, sign_ins, at_terminal, answer):
     gcal = make_gcal(dead_login)
