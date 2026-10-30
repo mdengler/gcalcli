@@ -152,6 +152,12 @@ def run_add_prompt(parsed_args, printer):
             parsed_args.reminders.append(str(n) + ' ' + m)
 
 
+# Commands that always call Google, whatever the cache holds.
+CALENDAR_CHANGING_COMMANDS = (
+    'add', 'quick', 'import', 'edit', 'delete', 'agendaupdate'
+)
+
+
 def main():
     parser = get_argument_parser()
     argv = sys.argv[1:]
@@ -232,19 +238,22 @@ def main():
     cal_names = set_resolved_calendars(parsed_args, printer=printer)
 
     userless_mode = bool(os.environ.get('GCALCLI_USERLESS_MODE'))
-    if parsed_args.command in ('config', 'util'):
-        gcal = None
-    else:
-        gcal = GoogleCalendarInterface(
-            cal_names=cal_names,
-            printer=printer,
-            userless_mode=userless_mode,
-            # TODO: Avoid heavy unnecessary setup in general, remove override.
-            do_eager_init=parsed_args.command != 'init',
-            **vars(parsed_args),
-        )
-
     try:
+        if parsed_args.command in ('config', 'util'):
+            gcal = None
+        else:
+            # Inside the try: setup can call Google, e.g. on a cache miss.
+            gcal = GoogleCalendarInterface(
+                cal_names=cal_names,
+                printer=printer,
+                userless_mode=userless_mode,
+                # TODO: Avoid heavy unnecessary setup in general, remove
+                # override.
+                do_eager_init=parsed_args.command != 'init',
+                sign_in_first=parsed_args.command in CALENDAR_CHANGING_COMMANDS,
+                **vars(parsed_args),
+            )
+
         if parsed_args.command == 'init':
             gcal.SetupAuth()
 

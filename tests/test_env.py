@@ -66,5 +66,7 @@ def test_get_cached_reads_cache_from_xdg_cache_home(dirs, monkeypatch):
         'refresh_cache': False,
         'use_cache': True,
     })
+    stub_self.cache_file_path = (
+        lambda: env.cache_file_paths(dirs.config_dir)[0])
     gcal.GoogleCalendarInterface._get_cached(stub_self)
     assert stub_self.all_cals == [{'id': 'from-xdg'}]
